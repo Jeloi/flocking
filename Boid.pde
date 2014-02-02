@@ -2,40 +2,35 @@ class Boid  {
 
 	PVector position;
 	PVector velocity = new PVector(0,0,0);
-	PVector steeringForce = new PVector(0,0,0);
+	PVector steeringForce = new PVector(0,0,0); // Force that acts on velocity (i.e acceleration)
 
-	PVector sep; // separation
-	PVector ali; // alignment
+	// Forces that contribute to steeringForce
+	PVector cent; // centering
 	PVector coh; // cohesion
 	PVector noi; // noise
 
-	float sepWeight = 10;
-	float aliWeight = .1;
-	float cohWeight = .1;
-	float noiWeight = 1;
-
-	float maxSpeed = 10;
-	float maxForce = 0.05;
-
-	float neighborhood = 700;
-
-
-	// ArrayList<Boid> neighbors;
+	// Origin points were saved in case I wanted to use them again
+	float origin_x = random(0, 300);
+	float origin_y = random(0, 300);
 
 	Boid() {
-		position = new PVector(width/2 + random(0, 10);, height/2, 0);
+		position = new PVector(origin_x, origin_y);
 	}
 
 	Boid (PVector initial) {
 		position = initial;
 	}
 
+
+	// Main run function. Applies the forces, and updates the boid's position. Paints the boid.
 	void run(ArrayList<Boid> neighbors, PVector global_avg) {
-		// applyForces();
-		applyNoise();
-		applyCohesion(global_avg);
-		calculateSteeringForce(neighbors);
-		update();
+		if (!paused) {
+			applyNoise();
+			applyViscosityForce();
+			applyCohesion(neighbors);
+			applyCentering(global_avg);
+			update();
+		}
 		paint();
 	}
 
@@ -47,28 +42,9 @@ class Boid  {
 		velocity.limit(maxSpeed);	// limit it to the maxSpeed
 		// Update boid's position
 		position.add(velocity);
-
-		steeringForce.mult(0); // Reset steering force to 0 after each update
+		steeringForce = new PVector(0,0,0); // Reset steering force to 0 after each update
 	}
 
-	void applyForces() {
-		// Calculate the three forces that govern flock behavior
-		// separate(neighbors);
-		// align(neighbors);
-		// cohesion();
-	}
-
-	// Calculate boid's steering force by adding the weighted vectors on the flocking behavior functions (rules)
-	void calculateSteeringForce(ArrayList<Boid> neighbors) {
-
-		// Weight these according to the global weights
-		// sep.mult(sepWeight);
-		// ali.mult(aliWeight);
-
-		// Add each of the force vectors to the steering force
-		// steeringForce.add(sep);
-		// steeringForce.add(ali);
-	}
 
 	// Returns a PVector indicating a force that steers the boid toward a target destination
 	// steering force = desired velocity - current velocity
@@ -84,45 +60,45 @@ class Boid  {
 
 	/** FORCE BEHAVIOR FUNCTIONS **/
 
-	void applySeparation(ArrayList<Boid> neighbors) {
-		// return null;
+	void applyViscosityForce() {
+	  PVector visc = new PVector(0,0,0);
+	  visc = velocity.get();
+	  visc.mult(-viscocity);
+	  steeringForce.add(visc);
 	}
 
-	// Alignment
-	void applyAlignment(ArrayList<Boid> neighbors) {
-		// return null;
-
+	// Cohesion - apply a force that pushes boids toward the average of their neighbors
+	void applyCohesion(ArrayList<Boid> neighbors) {
+		PVector sum = new PVector(0,0,0);
+		int count = 0;
+		for (Boid b : neighbors) {
+			float dist = PVector.dist(position, b.position);
+			if ((dist > 0) && (dist < neighbor_distance)) {
+				sum.add(b.position);
+				count++;
+			}
+		}
+		if (count > 0) { //has at least one neighbor
+			sum.div(count);
+			coh = seek(sum);
+			coh.mult(cohWeight);
+			steeringForce.add(coh);
+		}
 	}
 
-	// Cohesion/Centering Force
-	// 
-	void applyCohesion(PVector avg) {
-		coh = seek(avg);
-		float distanceToCenter = coh.mag();
-		// coh.normalize();
-
-		coh.mult(cohWeight);	// scale by the defined weight
-		steeringForce.add(coh);	// add to steering force
+	// Centering Force - tend to move toward the global (flock) average
+	void applyCentering(PVector avg) {
+		cent = seek(avg);
+		cent.mult(centWeight);	// scale by the defined weight
+		steeringForce.add(cent);	// add to steering force
 	}
 
-	// Instead of calculating the average velocity of the neighbors, use Perlin noise based on particle location to calculate alignment force
+	// Use Perlin noise based on particle location and the offset to apply a force
 	void applyNoise() {
-		noi = noise(
-        position.x / neighborhood,
-        position.y / neighborhood,
-        position.z / neighborhood)
-        - .5,
-      noise(
-        position.x / neighborhood,
-        position.y / neighborhood,
-        position.z / neighborhood)
-        - .5,
-      noise(
-        position.x / neighborhood,
-        position.y / neighborhood,
-        position.z / neighborhood)
-        - .5);
-
+		noi = new PVector(
+		noise(position.x / noiseScale +noiseOffset.x, position.y / noiseScale, position.z / noiseScale) - .5,
+		noise(position.x / noiseScale, position.y / noiseScale + noiseOffset.y, position.z / noiseScale) - .5,
+		noise(position.x / noiseScale, position.y / noiseScale, position.z / noiseScale + noiseOffset.z) - .5);
 		noi.mult(noiWeight);	// scale by the defined weight
 		steeringForce.add(noi);	// add to steering force
 	}
@@ -132,10 +108,19 @@ class Boid  {
 		position = p;
 	}
 
+	// Draw point with depth of field effect relative to the point's position to the camera plane
 	void paint(){
-		fill(255);
-		point(position.x, position.y, 0);
-		println(position);
+		Vec3D p = new Vec3D(position.x, position.y, position.z);
+		float distanceToCamera = cameraPlane.getDistanceToPoint(p);
+		// println("distanceToCamera: "+distanceToCamera);
+		// println("distanceToCamera/dof: "+distanceToCamera/doF);
+		distanceToCamera = distanceToCamera/doF;
+		distanceToCamera = constrain(distanceToCamera, 1, 15);
+		strokeWeight(distanceToCamera);
+		// rgb(110, 213, 247)
+		stroke(223, 248,220, constrain(255 / (distanceToCamera * distanceToCamera), 0, 255));
+		point(position.x, position.y, position.z);
+		// println(position);
 	}
 
 }
